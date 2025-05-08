@@ -1,0 +1,269 @@
+---
+title: "The Effect of Education on Income: A Cross-Country Analysis"
+author: "Sabin Cyriac"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(WDI)
+library(dplyr)
+```
+
+## Introduction
+
+Education is often considered a key factor in economic development. In this project, we investigate whether countries with higher average levels of education also tend to have higher income, measured by GDP per capita.
+
+**Research Question**:  
+Does higher education lead to higher income at the country level?
+
+---
+
+## Methodology
+
+We use cross-country data from the World Bank including:
+- **GDP per capita**: Proxy for income
+- **Average years of schooling**: Proxy for education
+- **Life expectancy**: Health indicator (control)
+- **Labor force participation rate**: Proxy for employment
+- **Inflation rate**: Control for macroeconomic stability
+
+We will clean and analyze this data using R.
+
+
+# Data Collection
+
+
+```{r load_data_2023}
+library(WDI)
+library(dplyr)
+
+# Download World Bank indicators for 2023
+education_income_data <- WDI(
+  country = "all",
+  indicator = c(
+    "NY.GDP.PCAP.CD",     # GDP per capita
+    "SE.SCH.LIFE",        # Average years of schooling
+    "SP.DYN.LE00.IN",     # Life expectancy
+    "SL.TLF.CACT.ZS",     # Labor force participation
+    "FP.CPI.TOTL.ZG"      # Inflation
+  ),
+  start = 2023,
+  end = 2023,
+  extra = TRUE
+)
+
+# Rename columns
+education_income_data <- education_income_data %>%
+  rename(
+    gdp_per_capita = NY.GDP.PCAP.CD,
+    school_years = SE.SCH.LIFE,
+    life_expectancy = SP.DYN.LE00.IN,
+    labor_force = SL.TLF.CACT.ZS,
+    inflation = FP.CPI.TOTL.ZG
+  )
+
+# Select only relevant columns and remove aggregates
+education_income_data <- education_income_data %>%
+  select(country, year, region, income, gdp_per_capita, school_years, life_expectancy, labor_force, inflation) %>%
+  filter(region != "Aggregates")
+
+# View first 10 rows
+knitr::kable(head(education_income_data, 10))
+
+
+
+```
+
+
+## Data Cleaning
+
+
+```{r clean_data}
+
+# Remove aggregate regions and missing values
+education_income_data_2023 <- education_income_data_2023 %>%
+  filter(region != "Aggregates", !is.na(SP.DYN.LE00.IN))
+
+
+# Remove duplicates, just in case
+education_income_data <- education_income_data %>% distinct()
+
+# Preview cleaned data
+head(education_income_data)
+
+
+```
+```{r removing empty rows}
+# Load ggplot2 if not already loaded
+library(ggplot2)
+
+#calculate inflation per region
+
+inflation_by_region <- education_income_data %>%
+  filter(!is.na(inflation), !is.na(region)) %>%
+  group_by(region) %>%
+  summarise(avg_inflation = mean(inflation, na.rm = TRUE)) %>%
+  arrange(desc(avg_inflation))
+
+ggplot(inflation_by_region, aes(x = reorder(region, avg_inflation), y = avg_inflation)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  coord_flip() +
+  labs(
+    title = "Average Inflation Rate by Region (2023)",
+    x = "Region",
+    y = "Average Inflation Rate (%)"
+  ) +
+  theme_minimal()
+
+# Prepare data: calculate average life expectancy per region
+life_expectancy_by_region <- education_income_data %>%
+  group_by(region) %>%
+  summarise(avg_life_expectancy = mean(life_expectancy, na.rm = TRUE)) %>%
+  arrange(desc(avg_life_expectancy))
+
+ggplot(life_expectancy_by_region, aes(x = reorder(region, avg_life_expectancy), y = avg_life_expectancy)) +
+  geom_bar(stat = "identity", fill = "forestgreen") +
+  coord_flip() +
+  labs(
+    title = "Average Life Expectancy by Region (2023)",
+    x = "Region",
+    y = "Average Life Expectancy (Years)"
+  ) +
+  theme_minimal()
+
+# Calculate average GDP per capita by region
+gdp_by_region <- education_income_data %>%
+  group_by(region) %>%
+  summarise(avg_gdp = mean(gdp_per_capita, na.rm = TRUE)) %>%
+  arrange(desc(avg_gdp))
+
+ggplot(gdp_by_region, aes(x = reorder(region, avg_gdp), y = avg_gdp)) +
+  geom_bar(stat = "identity", fill = "darkorange") +
+  coord_flip() +
+  labs(
+    title = "Average GDP per Capita by Region (2023)",
+    x = "Region",
+    y = "GDP per Capita (USD)"
+  ) +
+  theme_minimal()
+
+
+
+# Visualize average years of schooling by region
+schooling_by_region <- education_income_data %>%
+  filter(!is.na(school_years), !is.na(region)) %>%
+  group_by(region) %>%
+  summarise(avg_schooling_years = mean(school_years, na.rm = TRUE)) %>%
+  arrange(desc(avg_schooling_years))
+
+ggplot(schooling_by_region, aes(x = reorder(region, avg_schooling_years), y = avg_schooling_years)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Average Years of Schooling by Region",
+    x = "Region",
+    y = "Average Years of Schooling"
+  ) +
+  theme_minimal()
+
+
+
+```
+ 
+
+
+```{r regression_model}
+
+
+# Only run diagnostics if model was created
+if (exists("regression_model")) {
+  par(mfrow = c(2, 2))  # Arrange plots in 2x2 grid
+  plot(regression_model)
+  par(mfrow = c(1, 1))  # Reset layout
+} else {
+  cat("Regression model not found. Please ensure regression was run.")
+}
+
+# Descriptive summary statistics for key variables
+
+summary_stats <- education_income_data %>%
+  summarise(
+    avg_gdp = mean(gdp_per_capita, na.rm = TRUE),
+    avg_school = mean(school_years, na.rm = TRUE),
+    avg_life = mean(life_expectancy, na.rm = TRUE),
+    avg_inflation = mean(inflation, na.rm = TRUE),
+    avg_labor = mean(labor_force, na.rm = TRUE)
+  )
+
+# View the summary statistics table
+knitr::kable(summary_stats)
+
+
+
+# Calculate average GDP, schooling, life expectancy, inflation, labor force by region
+region_comparisons <- education_income_data %>%
+  group_by(region) %>%
+  summarise(
+    avg_gdp = mean(gdp_per_capita, na.rm = TRUE),
+    avg_schooling_years = mean(school_years, na.rm = TRUE),
+    avg_life_expectancy = mean(life_expectancy, na.rm = TRUE),
+    avg_inflation = mean(inflation, na.rm = TRUE),
+    avg_labor_force = mean(labor_force, na.rm = TRUE)
+  )
+
+# View the results
+knitr::kable(region_comparisons)
+
+# Descriptive summary statistics for key variables
+summary_stats <- education_income_data %>%
+  summarise(
+    avg_gdp = mean(gdp_per_capita, na.rm = TRUE),
+    avg_school = mean(school_years, na.rm = TRUE),
+    avg_life = mean(life_expectancy, na.rm = TRUE),
+    avg_inflation = mean(inflation, na.rm = TRUE),
+    avg_labor = mean(labor_force, na.rm = TRUE)
+  )
+
+
+
+# Create a data frame with only the relevant variables for correlation
+cor_data <- education_income_data %>%
+  select(gdp_per_capita, school_years, life_expectancy, labor_force, inflation)
+
+# Compute the correlation matrix using pairwise.complete.obs to handle missing data
+cor_matrix <- cor(cor_data, use = "pairwise.complete.obs")
+
+# Show the correlation matrix
+knitr::kable(cor_matrix)
+
+
+```
+```{r}
+
+# Findings
+
+The analysis shows that regions with higher average years of schooling tend to have higher GDP per capita. This supports the hypothesis that education contributes to economic development. Life expectancy and labor force participation also appear to play roles, suggesting a broader relationship between health, workforce engagement, and income.
+Inflation varies across regions but does not show a clear direct relationship with GDP in this analysis. A formal regression model could not be estimated due to missing data, which limits the ability to draw causal inferences.
+Still, the visualizations and correlation matrix provide valuable insight into patterns across countries.
+
+# Conclusion
+
+This project investigated the relationship between education and income across countries using World Bank data.Although I encountered with missing data that prevented full regression modeling, the descriptive analysis and correlation patterns suggest that countries with more schooling tend to enjoy higher incomes. Future research could expand on this using more complete longitudinal data and additional controls.This project explored the relationship between education and income across countries using 2023 World Bank data.Eventhough challenges with missing values that limited the ability to perform a full regression analysis, the visualizations and descriptive statistics provided useful insights.
+
+The findings suggest that countries with higher average years of schooling generally tend to have higher GDP per capita. This aligns with economic theory, which holds that education improves human capital and productivity. Additionally, regions with higher life expectancy and labor force participation also showed relatively stronger economic indicators, suggesting that these factors may interact with education to influence income levels.
+
+Due to data limitations—particularly missing values for key variables in many countries—a full multivariable regression model could not be estimated. This represents a limitation in the analysis, and it emphasizes the importance of complete datasets for robust statistical modeling.
+
+
+
+Limitations include missing values, single-year data (2023), and potential unobserved variables. Despite this, the analysis highlights the importance of education in global economic outcomes.
+
+
+# References
+
+- World Bank Indicators (WDI). [https://data.worldbank.org](https://data.worldbank.org)
+- OECD Education Database. [https://data.oecd.org/education.htm](https://data.oecd.org/education.htm)
+
+
